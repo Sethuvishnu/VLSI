@@ -5,10 +5,18 @@ CMOS semiconductor fabrication — wafer prep, thermal oxidation,
 photolithography, ion implantation, diffusion, thin-film deposition, and
 etching — without needing TCAD software or a cleanroom.
 
-Built with **NumPy**, **SciPy**, **Matplotlib**, and **Streamlit**.
+Built with **NumPy**, **SciPy**, **Matplotlib**, **Plotly**, and **Streamlit**.
 
-## Features (v0.1 — starter version)
+The project ships as **two apps** that you can run separately:
 
+| App | Command | What it is |
+|---|---|---|
+| `app.py` | `streamlit run app.py` | 2D version: 7 tabs, one shared wafer state, "Apply to Wafer" chaining |
+| `app3d.py` | `streamlit run app3d.py` | 3D version: sequential flow builder with a 3D wafer, plus a separate photolithography lab |
+
+## Features (v0.2)
+
+### 2D app (`app.py`)
 - Interactive sliders for temperature, time, dopant, energy, dose, NA, etc.
 - Real physics models per step:
   - **Oxidation** — Deal-Grove model (linear + parabolic regimes, dry/wet)
@@ -18,14 +26,50 @@ Built with **NumPy**, **SciPy**, **Matplotlib**, and **Streamlit**.
     with junction-depth extraction
   - **Deposition** — Arrhenius growth-rate model for CVD films
   - **Etching** — isotropic vs. anisotropic depth/undercut and mask erosion
-- Live graphs (concentration profiles, thickness vs. time, resolution vs. NA)
-- Simple wafer cross-section illustrations after each step
+- **Persistent wafer state** (`wafer_state.py`): each tab's *Apply to Wafer*
+  button commits that step, so oxide thickness, doping and layers carry
+  forward through the whole run. The sidebar shows the live state and history.
+- Live graphs and simple wafer cross-section illustrations
+
+### 3D app (`app3d.py`)
+- **Fabrication flow (3D)**
+  - Add steps in order (prep, oxidation, implant, diffusion, deposition, etch).
+    Every step changes the same wafer.
+  - Scrub through the steps with a slider, or press **Play process** to
+    animate the whole flow.
+  - The wafer is a 2D cross-section extruded into 3D. The cut face is coloured
+    by net doping (red = p-type, blue = n-type) so junctions are visible.
+  - A doping-vs-depth plot at any lateral position, with junction depth marked.
+  - Films stop implanted ions, so a poly gate protects the silicon under it
+    (self-aligned source/drain).
+  - Diffusion spreads dopants sideways as well as downward.
+  - Etches can target a single material (oxide, poly, nitride, metal, silicon)
+    and stop on the layer below.
+  - **Load example CMOS flow** builds a small transistor in 13 steps
+    (field oxide, gate oxide, poly gate, S/D implant, anneal, ILD, contacts, metal).
+- **Photolithography lab** — its own 9-step sequence, separate from the fab flow:
+  1. Clean & dehydration bake
+  2. HMDS adhesion primer
+  3. Spin-coat photoresist
+  4. Soft bake
+  5. Mask alignment
+  6. Exposure (3D scene shows mask and UV)
+  7. Post-exposure bake
+  8. Develop
+  9. Hard bake & inspect
+
+  Each sub-step has a plain-language explanation, measured values (thickness,
+  contrast, printed line width, sidewall angle) and warnings for bad settings.
+- Lithography is **not** chained into the flow. In the fab flow, the
+  *Resist mask* option (open inside/outside a window) stands in for the
+  pattern the lab produces.
 
 ## Project Structure
 
 ```
 cmos_simulator/
-├── app.py                  # Streamlit UI, ties all modules together
+├── app.py                  # 2D Streamlit UI (7 tabs, shared wafer state)
+├── app3d.py                # 3D Streamlit UI (flow builder + litho lab)
 ├── requirements.txt
 └── modules/
     ├── oxidation.py         # Deal-Grove thermal oxidation
@@ -33,9 +77,17 @@ cmos_simulator/
     ├── implantation.py      # Gaussian ion implant profile
     ├── diffusion.py         # erfc / Gaussian diffusion profiles
     ├── deposition.py        # Arrhenius CVD film growth
-    ├── etching.py            # isotropic / anisotropic etch models
-    └── wafer_view.py         # matplotlib wafer cross-section illustrator
+    ├── etching.py           # isotropic / anisotropic etch models
+    ├── wafer_view.py        # matplotlib wafer cross-section illustrator
+    ├── wafer_state.py       # shared wafer state used by app.py
+    ├── wafer3d.py           # 2D cross-section wafer model used by app3d.py
+    ├── litho_process.py     # 9-step photolithography lab model
+    └── viz3d.py             # Plotly 3D scenes
 ```
+
+`app3d.py` and its three modules (`wafer3d.py`, `litho_process.py`, `viz3d.py`)
+are self-contained and do not import the older modules, so the two apps
+cannot break each other.
 
 ## Setup
 
@@ -43,10 +95,12 @@ cmos_simulator/
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run app.py            # 2D version
+streamlit run app3d.py          # 3D version
 ```
 
 This opens the app in your browser at `http://localhost:8501`.
+Make sure `requirements.txt` includes `plotly` (needed by `app3d.py`).
 
 ## Accuracy Notes (read before citing results)
 
@@ -56,21 +110,27 @@ This is a **teaching tool**, not a production TCAD simulator:
   Arrhenius parameters for common conditions — real fabs calibrate these
   per-tool and per-recipe.
 - Ion implant Rp/ΔRp use a simplified power-law fit, not SRIM/TRIM
-  Monte-Carlo data.
+  Monte-Carlo data. In the 3D app, films above the silicon are assumed to
+  stop ions like silicon does.
 - Etch and lithography models are first-order (Rayleigh criterion,
-  constant-rate etch) and ignore effects like proximity, loading, or
-  RET (OPC, phase-shift masks).
-- The wafer cross-section is a schematic illustration, not a meshed 2D/3D
-  topography simulation.
+  constant-rate etch, simplified aerial-image contrast and resist response)
+  and ignore effects like proximity, loading, or RET (OPC, phase-shift masks).
+- The 2D app's wafer cross-section is a schematic illustration. The 3D app
+  uses a coarse 2D grid (about 40 nm lateral, 20 nm vertical) extruded into
+  3D, so features smaller than a grid cell are not resolved. Deposition is
+  perfectly conformal, and etch undercut is a simple rounded profile, not a
+  level-set simulation.
+- Thermal oxide consumes silicon (44% of its thickness) and grows only where
+  no poly, nitride or metal covers the surface.
 
 ## Ideas for Extending This Project
 
-- Add a full process **flow builder** (chain steps in sequence, carry the
-  wafer state — oxide thickness, doping profile — from one tab to the next)
+- ~~Process flow builder with persistent wafer state~~ (done: `wafer_state.py`, `wafer3d.py`)
+- ~~2D/3D cross-section rendering~~ (done in a simplified form: `viz3d.py`)
+- Feed the litho lab's printed pattern directly into the flow as the mask
 - Replace the implant model with real SRIM output or a lookup table
 - Add CMP (chemical-mechanical planarization) and silicidation steps
-- 2D/3D cross-section rendering (e.g., with a level-set method) for
-  realistic topography instead of flat layers
+- True topography with a level-set method (e.g. ViennaPS) instead of columns
 - Export process recipes / results to CSV or PDF reports
 - Add a MOSFET I-V calculator once doping profiles are generated, to close
   the loop from process → device
@@ -99,7 +159,7 @@ This is a **teaching tool**, not a production TCAD simulator:
 - [ViennaPS](https://github.com/ViennaTools/ViennaPS) — open-source **topography/process**
   simulation library (etching, deposition, oxidation) using level-set
   methods, with Python bindings. Much closer to real TCAD than this
-  starter project, but heavier to set up (C++ core).
+  project, but heavier to set up (C++ core).
 
 ### Reference Data / Circuit-Level Tools
 - [Predictive Technology Model (PTM)](https://ptm.asu.edu/) — free, downloadable
@@ -119,5 +179,5 @@ This is a **teaching tool**, not a production TCAD simulator:
 
 ## License
 
-This starter project is intended for educational use — adapt freely for
+This project is intended for educational use — adapt freely for
 coursework or further development.
